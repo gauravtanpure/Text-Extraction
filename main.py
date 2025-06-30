@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 def extract_text_from_pdf(pdf_path):
-    """Extract text from PDF using pdfplumber for better layout handling"""
     try:
         text = ""
         with pdfplumber.open(pdf_path) as pdf:
@@ -21,7 +20,7 @@ def extract_text_from_pdf(pdf_path):
 
 def extract_field_value(text, field_patterns):
     for pattern in field_patterns:
-        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
         if match:
             value = match.group(1).strip()
             value = re.sub(r'\s+', ' ', value)
@@ -35,18 +34,27 @@ def extract_by_line_parsing(text):
     data = {}
     for i, line in enumerate(lines):
         line = line.strip()
-        if 'First Name' in line and i + 1 < len(lines):
+
+        if line.lower().startswith("first name") and i + 1 < len(lines):
+            data['First Name'] = lines[i + 1].strip()
+        elif line.lower().startswith("middle name") and i + 1 < len(lines):
+            data['Middle Name'] = lines[i + 1].strip()
+        elif line.lower().startswith("last name") and i + 1 < len(lines):
+            data['Last Name'] = lines[i + 1].strip()
+        elif line.strip().startswith("Name "):
+            name_val = line.strip().split("Name", 1)[-1].strip()
+            if name_val and name_val.lower() != "uploaded document":
+                data['Name'] = name_val
+        elif line.lower().startswith("office number") and i + 1 < len(lines):
             next_line = lines[i + 1].strip()
-            if next_line and not any(x in next_line.lower() for x in ['middle', 'last', 'name']):
-                data['First Name'] = next_line
-        elif 'Middle Name' in line and i + 1 < len(lines):
-            next_line = lines[i + 1].strip()
-            if next_line and not any(x in next_line.lower() for x in ['first', 'last', 'name']):
-                data['Middle Name'] = next_line
-        elif 'Last Name' in line and i + 1 < len(lines):
-            next_line = lines[i + 1].strip()
-            if next_line and 'any criminal' not in next_line.lower():
-                data['Last Name'] = next_line
+            if re.match(r'^[0-9]+$', next_line):
+                data['Contact Number'] = next_line
+        elif "office number" in line.lower():
+            number = re.findall(r'[0-9]{6,}', line)
+            if number:
+                data['Contact Number'] = number[0]
+
+        # Address fields
         elif 'House Number' in line and i + 1 < len(lines):
             data['House Number'] = lines[i + 1].strip()
         elif 'Building Name' in line and i + 1 < len(lines):
@@ -71,12 +79,6 @@ def extract_by_line_parsing(text):
             next_line = lines[i + 1].strip()
             if re.match(r'^[0-9]{6}$', next_line):
                 data['Pin Code'] = next_line
-        elif 'Office Number' in line and i + 1 < len(lines):
-            next_line = lines[i + 1].strip()
-            if re.match(r'^[0-9]+$', next_line):
-                data['Office Number'] = next_line
-        elif 'Website URL' in line and i + 1 < len(lines):
-            data['Website URL'] = lines[i + 1].strip()
     return data
 
 def extract_information_from_pdf(pdf_path):
@@ -90,68 +92,22 @@ def extract_information_from_pdf(pdf_path):
     print("=" * 50)
 
     patterns = {
-        'First Name': [
-            r'First Name\s+([A-Z]+)',
-            r'First Name\s+([A-Z]+)\s+Middle Name',
-            r'First Name\s+([A-Z]+)\s+Last Name',
-        ],
-        'Middle Name': [
-            r'Middle Name\s+([A-Z]+)',
-            r'Middle Name\s+([A-Z]+)\s+Last Name',
-        ],
-        'Last Name': [
-            r'Last Name\s+([A-Z]+)',
-            r'Last Name\s+([A-Z]+)\s+Any',
-        ],
-        'House Number': [
-            r'House Number\s+([^\n]+?)\s+Building',
-            r'House Number\s+([^\n]+)',
-        ],
-        'Building Name': [
-            r'Building Name\s+([^\n]+?)\s+Street',
-            r'Building Name\s+([^\n]+)',
-        ],
-        'Street Name': [
-            r'Street Name\s+([^\n]+?)\s+Locality',
-            r'Street Name\s+([^\n]+)',
-        ],
-        'Locality': [
-            r'Locality\s+([^\n]+?)\s+Landmark',
-            r'Locality\s+([^\n]+)',
-        ],
-        'Landmark': [
-            r'Landmark\s+([^\n]+?)\s+State',
-            r'Landmark\s+([^\n]+)',
-        ],
-        'State/UT': [
-            r'State/UT\s+([^\n]+?)\s+Division',
-            r'State/UT\s+([^\n]+)',
-        ],
-        'Division': [
-            r'Division\s+([^\n]+?)\s+District',
-            r'Division\s+([^\n]+)',
-        ],
-        'District': [
-            r'District\s+([^\n]+?)\s+Taluka',
-            r'District\s+([^\n]+)',
-        ],
-        'Taluka': [
-            r'Taluka\s+([^\n]+?)\s+Village',
-            r'Taluka\s+([^\n]+)',
-        ],
-        'Village': [
-            r'Village\s+([^\n]+?)\s+Pin',
-            r'Village\s+([^\n]+)',
-        ],
-        'Pin Code': [
-            r'Pin Code\s+([0-9]{6})',
-        ],
-        'Office Number': [
-            r'Office Number\s+([0-9]+)',
-        ],
-        'Website URL': [
-            r'Website URL\s+([^\s]+)',
-        ]
+        'Name': [r'^Name\s+([A-Z0-9\s\-&,().]+)$'],
+        'First Name': [r'First Name\s+([A-Z]+)'],
+        'Middle Name': [r'Middle Name\s+([A-Z]+)'],
+        'Last Name': [r'Last Name\s+([A-Z]+)'],
+        'Contact Number': [r'Office Number\s+([0-9]+)'],
+        'House Number': [r'House Number\s+([^\n]+)'],
+        'Building Name': [r'Building Name\s+([^\n]+)'],
+        'Street Name': [r'Street Name\s+([^\n]+)'],
+        'Locality': [r'Locality\s+([^\n]+)'],
+        'Landmark': [r'Landmark\s+([^\n]+)'],
+        'State/UT': [r'State/UT\s+([^\n]+)'],
+        'Division': [r'Division\s+([^\n]+)'],
+        'District': [r'District\s+([^\n]+)'],
+        'Taluka': [r'Taluka\s+([^\n]+)'],
+        'Village': [r'Village\s+([^\n]+)'],
+        'Pin Code': [r'Pin Code\s+([0-9]{6})'],
     }
 
     extracted_data = {}
@@ -166,25 +122,8 @@ def extract_information_from_pdf(pdf_path):
             extracted_data[field] = line_parsed_data[field]
             print(f"DEBUG: {field} (line parsing): '{line_parsed_data[field]}'")
 
-    result = {
-        'First Name': extracted_data.get('First Name', ''),
-        'Middle Name': extracted_data.get('Middle Name', ''),
-        'Last Name': extracted_data.get('Last Name', ''),
-        'House Number': extracted_data.get('House Number', ''),
-        'Building Name': extracted_data.get('Building Name', ''),
-        'Street Name': extracted_data.get('Street Name', ''),
-        'Locality': extracted_data.get('Locality', ''),
-        'Landmark': extracted_data.get('Landmark', ''),
-        'State/UT': extracted_data.get('State/UT', ''),
-        'Division': extracted_data.get('Division', ''),
-        'District': extracted_data.get('District', ''),
-        'Taluka': extracted_data.get('Taluka', ''),
-        'Village': extracted_data.get('Village', ''),
-        'Pin Code': extracted_data.get('Pin Code', ''),
-        'Contact Details': extracted_data.get('Office Number', ''),
-        'Website': extracted_data.get('Website URL', ''),
-        'Source File': os.path.basename(pdf_path)
-    }
+    result = {field: extracted_data.get(field, '') for field in patterns.keys()}
+    result['Source File'] = os.path.basename(pdf_path)
     return result
 
 def process_single_pdf(pdf_path, output_csv='extracted_data.csv'):
